@@ -149,7 +149,7 @@ namespace AndroidCast
     {
         private ListView lv;
         private Button btnScan, btnUsb, btnCast, btnStop, btnQr, btnFindPair, btnPairCode;
-        private CheckBox chkAutoScan, chkStay, chkAutoConn, chkFs, chkUhid;
+        private CheckBox chkAutoScan, chkStay, chkAutoConn, chkFs, chkUhid, chkFill;
         private ComboBox cmbBitrate, cmbMax;
         private PictureBox pbQr;
         private Label lblQrHint, lblQrState, lblPairSvc, lblStatus, lblPaths, lblCodeLabel;
@@ -345,9 +345,16 @@ namespace AndroidCast
             gbOpt.Controls.Add(chkUhid);
 
             lblPaths = new Label();
-            lblPaths.Location = new Point(14, 52);
-            lblPaths.Size = new Size(714, 20);
+            lblPaths.Location = new Point(132, 52);
+            lblPaths.Size = new Size(596, 20);
             lblPaths.ForeColor = Color.DimGray;
+
+            chkFill = new CheckBox();
+            chkFill.Text = "填滿螢幕";
+            chkFill.Checked = true;
+            chkFill.Location = new Point(14, 50);
+            chkFill.Size = new Size(112, 24);
+            gbOpt.Controls.Add(chkFill);
             lblPaths.Text = "adb: " + Path.GetFileName(Path.GetDirectoryName(Adb.AdbPath)) + "\\adb.exe     scrcpy: " + Path.GetFileName(Adb.ScrcpyDir == null ? "?" : Adb.ScrcpyDir) + (Adb.ScrcpyDir == null ? "（未安裝）" : "（已就緒）");
             gbOpt.Controls.Add(lblPaths);
 
@@ -833,6 +840,7 @@ namespace AndroidCast
             if (cmbMax.SelectedIndex > 0) args += " --max-size=" + cmbMax.SelectedItem.ToString();
             if (chkStay.Checked) args += " --stay-awake";
             if (chkFs.Checked) args += Core.PlacementArgs();
+            if (chkFill.Checked) args += Core.CropArgs();
             if (chkUhid.Checked) args += " --mouse=uhid --keyboard=uhid";
             args += " --window-title=\"無線投屏 " + target + "\"";
 
@@ -921,6 +929,7 @@ namespace AndroidCast
             if (mx != null) args += " --max-size=" + mx;
             if (stay) args += " --stay-awake";
             args += Core.PlacementArgs();
+            args += Core.CropArgs();
             args += " --window-title=\"無線投屏 " + target + "\"";
             try
             {

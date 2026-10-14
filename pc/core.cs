@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 
 namespace AndroidCast
@@ -15,6 +16,7 @@ namespace AndroidCast
         public static bool StayAwake = false;
         public static bool FullscreenPortrait = true;   // 開喺豎屏副螢幕 + 全屏
         public static bool MouseUhid = false;           // true = 鼠標鎖定模式（UHID）
+        public static bool FillScreen = true;           // 裁切到同螢幕同比例，填滿冇黑邊
         public static volatile bool QuitRequested = false;
         public static Process Scr;
         public static string KnownFile = null;
@@ -118,24 +120,65 @@ namespace AndroidCast
             return null;
         }
 
+        public static System.Windows.Forms.Screen PickScreen()
+        {
+            System.Windows.Forms.Screen[] ss = System.Windows.Forms.Screen.AllScreens;
+            foreach (System.Windows.Forms.Screen s in ss)
+                if (!s.Primary && s.Bounds.Height > s.Bounds.Width) return s;
+            foreach (System.Windows.Forms.Screen s in ss)
+                if (s.Bounds.Height > s.Bounds.Width) return s;
+            return System.Windows.Forms.Screen.PrimaryScreen;
+        }
+
         public static string PlacementArgs()
         {
             try
             {
-                System.Windows.Forms.Screen[] ss = System.Windows.Forms.Screen.AllScreens;
-                System.Windows.Forms.Screen pick = null;
-                foreach (System.Windows.Forms.Screen s in ss)
-                    if (!s.Primary && s.Bounds.Height > s.Bounds.Width) { pick = s; break; }
-                if (pick == null)
-                    foreach (System.Windows.Forms.Screen s in ss)
-                        if (s.Bounds.Height > s.Bounds.Width) { pick = s; break; }
-                if (pick == null) pick = System.Windows.Forms.Screen.PrimaryScreen;
+                System.Windows.Forms.Screen pick = PickScreen();
                 System.Drawing.Rectangle b = pick.Bounds;
                 Log("投屏窗放喺 " + pick.DeviceName + "  " + b.X + "," + b.Y + "  " + b.Width + "x" + b.Height + "（全屏）");
                 return " --window-x=" + b.X + " --window-y=" + b.Y + " --window-width=" + b.Width +
                        " --window-height=" + b.Height + " --fullscreen";
             }
             catch (Exception ex) { Log("螢幕偵測失敗：" + ex.Message); return ""; }
+        }
+
+        // 手機畫面比例同螢幕唔一樣 → 裁切（唔留黑邊）
+        public static string CropArgs()
+        {
+            try
+            {
+                string sz = DeviceScreenSize();
+                if (sz == null) return "";
+                string[] p = sz.Split('x');
+                int pw = int.Parse(p[0]), ph = int.Parse(p[1]);
+                System.Drawing.Rectangle b = PickScreen().Bounds;
+                double A = (double)b.Width / b.Height;
+                int cw, ch, cx, cy;
+                if ((double)pw / ph > A) { ch = ph; cw = (int)Math.Round(ph * A); cx = (pw - cw) / 2; cy = 0; }
+                else { cw = pw; ch = (int)Math.Round(pw / A); cx = 0; cy = (ph - ch) / 2; }
+                cw -= cw % 2; ch -= ch % 2; cx -= cx % 2; cy -= cy % 2;
+                Log("裁切 " + cw + "x" + ch + " @ " + cx + "," + cy + "（手機 " + pw + "x" + ph + " → 螢幕 " + b.Width + "x" + b.Height + "）");
+                return " --crop=" + cw + ":" + ch + ":" + cx + ":" + cy;
+            }
+            catch (Exception ex) { Log("算裁切失敗：" + ex.Message); return ""; }
+        }
+
+        public static string DeviceScreenSize()
+        {
+            string dev = DeviceInfo();
+            if (dev == "offline") return null;
+            string o = Adb.A("-s " + dev + " shell wm size", 8000);
+            string first = null;
+            string[] lines = o.Split(new char[] { (char)13, (char)10 }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string line in lines)
+            {
+                Match m = Regex.Match(line, @"(\d+)x(\d+)");
+                if (!m.Success) continue;
+                if (line.IndexOf("Override", StringComparison.OrdinalIgnoreCase) >= 0) return m.Value;
+                if (first == null) first = m.Value;
+            }
+            return first;
         }
 
         public static bool StartScrcpy(string target)
@@ -146,6 +189,7 @@ namespace AndroidCast
             if (!string.IsNullOrEmpty(MaxSize)) args += " --max-size=" + MaxSize;
             if (StayAwake) args += " --stay-awake";
             if (FullscreenPortrait) args += PlacementArgs();
+            if (FillScreen && FullscreenPortrait) args += CropArgs();
             if (MouseUhid) args += " --mouse=uhid --keyboard=uhid";
             args += " --window-title=\"無線投屏 " + target + "\"";
             try
