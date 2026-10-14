@@ -151,7 +151,7 @@ namespace AndroidCast
     {
         private ListView lv;
         private Button btnScan, btnUsb, btnCast, btnStop, btnQr, btnFindPair, btnPairCode;
-        private CheckBox chkAutoScan, chkStay, chkAutoConn, chkFs, chkUhid, chkFill, chkFit, chkShutdown;
+        private CheckBox chkAutoScan, chkStay, chkAutoConn, chkFs, chkUhid, chkFill, chkFit, chkShutdown, chkAutoMove;
         private ComboBox cmbBitrate, cmbMax;
         private PictureBox pbQr;
         private Label lblQrHint, lblQrState, lblPairSvc, lblStatus, lblPaths, lblCodeLabel;
@@ -377,6 +377,19 @@ namespace AndroidCast
                 Log("手機關機權限：" + (Core.AllowShutdown ? "允許" : "禁止"));
             };
             gbOpt.Controls.Add(chkShutdown);
+
+            chkAutoMove = new CheckBox();
+            chkAutoMove.Text = "橫屏自動搬主螢幕";
+            chkAutoMove.Checked = true;
+            chkAutoMove.Location = new Point(404, 50);
+            chkAutoMove.Size = new Size(170, 24);
+            chkAutoMove.CheckedChanged += delegate
+            {
+                Core.AutoMove = chkAutoMove.Checked;
+                Core.SaveSettings();
+                Log("橫屏自動搬螢幕：" + (Core.AutoMove ? "開" : "關"));
+            };
+            gbOpt.Controls.Add(chkAutoMove);
             lblPaths.Text = "adb: " + Path.GetFileName(Path.GetDirectoryName(Adb.AdbPath)) + "\\adb.exe     scrcpy: " + Path.GetFileName(Adb.ScrcpyDir == null ? "?" : Adb.ScrcpyDir) + (Adb.ScrcpyDir == null ? "（未安裝）" : "（已就緒）");
             gbOpt.Controls.Add(lblPaths);
 
@@ -443,6 +456,7 @@ namespace AndroidCast
             Core.SettingsFile = Path.Combine(Application.StartupPath, "settings.txt");
             Core.LoadSettings();
             chkShutdown.Checked = Core.AllowShutdown;
+            chkAutoMove.Checked = Core.AutoMove;
             Log("手機關機權限：" + (Core.AllowShutdown ? "允許" : "禁止"));
             LoadKnown();
             Task.Factory.StartNew(delegate

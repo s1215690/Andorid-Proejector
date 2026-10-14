@@ -19,6 +19,8 @@ namespace AndroidCast
         public static bool FillScreen = true;           // 裁切到同螢幕同比例，填滿冇黑邊
         public static bool FitPhoneResolution = true;   // 叫手機用螢幕嘅比例排版（填滿＋完整）
         public static bool AllowShutdown = true;        // 允許手機叫電腦關機
+        public static bool AutoMove = true;             // 橫屏自動搬去主螢幕（手機 App 可以開關）
+        public static string LastWindowTitle = null;
         public static string SettingsFile = null;
         public static string LastTarget = null;
         public static bool LastPlacementLandscape = false;
@@ -34,6 +36,7 @@ namespace AndroidCast
                 {
                     string t = l.Trim();
                     if (t.StartsWith("allow_shutdown=")) AllowShutdown = t.EndsWith("1");
+                    if (t.StartsWith("auto_move=")) AutoMove = t.EndsWith("1");
                 }
             }
             catch { }
@@ -44,9 +47,67 @@ namespace AndroidCast
             try
             {
                 if (SettingsFile == null) return;
-                File.WriteAllText(SettingsFile, "allow_shutdown=" + (AllowShutdown ? "1" : "0") + (char)13 + (char)10);
+                File.WriteAllText(SettingsFile, "allow_shutdown=" + (AllowShutdown ? "1" : "0") + (char)13 + (char)10 +
+                                                "auto_move=" + (AutoMove ? "1" : "0") + (char)13 + (char)10);
             }
             catch { }
+        }
+
+        // 即時搬投屏窗去另一個螢幕（唔重開 scrcpy，所以一轉向即見）
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern IntPtr FindWindowW(string cls, string title);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr h);
+
+        private static int lastMoveTick = 0;
+
+        public static void MoveToScreen(bool land)
+        {
+            try
+            {
+                if (Scr == null || Scr.HasExited) return;
+                System.Windows.Forms.Screen s = PickScreen(land);
+                System.Drawing.Rectangle b = s.Bounds;
+                IntPtr h = LastWindowTitle == null ? IntPtr.Zero : FindWindowW(null, LastWindowTitle);
+                if (h == IntPtr.Zero)
+                {
+                    Log("搵唔到投屏窗（" + LastWindowTitle + "）→ 改用重開 scrcpy");
+                    KillScrcpyOnly();
+                    Thread.Sleep(600);
+                    if (LastTarget != null) StartScrcpy(LastTarget);
+                    return;
+                }
+                SetWindowPos(h, IntPtr.Zero, b.X, b.Y, b.Width, b.Height, 0x0040 | 0x0010);
+                Log("即時搬投屏窗 → " + s.DeviceName + "  " + b.X + "," + b.Y + "  " + b.Width + "x" + b.Height + "（冇重開）");
+            }
+            catch (Exception ex) { Log("搬窗失敗：" + ex.Message); }
+        }
+
+        // scrcpy 報 "Texture: WxH" = 畫面尺寸變咗（轉向）→ 即刻查真實方向再搬位
+        private static void OnTextureLine(string data)
+        {
+            if (!AutoMove || !FullscreenPortrait) return;
+            Match tm = Regex.Match(data, @"Texture:\s*(\d+)x(\d+)");
+            if (!tm.Success) return;
+            int now = Environment.TickCount;
+            if (now - lastMoveTick < 1500) return;
+            lastMoveTick = now;
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    bool land = IsLandscape();
+                    if (land != LastPlacementLandscape)
+                    {
+                        Log("偵測到轉去" + (land ? "橫屏" : "直屏") + "（scrcpy 即時通知）");
+                        LastPlacementLandscape = land;
+                        MoveToScreen(land);
+                    }
+                }
+                catch { }
+            });
         }
 
         // 投屏期間手機轉向（橫↔直）→ 自動搬去對應螢幕（橫屏主螢幕／直屏豎屏螢幕）
@@ -61,13 +122,12 @@ namespace AndroidCast
                     try
                     {
                         if (Scr == null || Scr.HasExited) continue;
+                        if (!AutoMove) continue;
                         bool land = IsLandscape();
                         if (land == LastPlacementLandscape) continue;
-                        Log("偵測到轉去" + (land ? "橫屏" : "直屏") + " → 搬去" + (land ? "主螢幕" : "豎屏螢幕"));
-                        string t = LastTarget;
-                        KillScrcpyOnly();
-                        Thread.Sleep(700);
-                        if (t != null) StartScrcpy(t);
+                        Log("偵測到轉去" + (land ? "橫屏" : "直屏") + " → 即時搬去" + (land ? "主螢幕" : "豎屏螢幕"));
+                        LastPlacementLandscape = land;
+                        MoveToScreen(land);
                     }
                     catch { }
                 }
@@ -256,9 +316,9 @@ namespace AndroidCast
                 LastPlacementLandscape = land;
                 System.Windows.Forms.Screen pick = PickScreen(land);
                 System.Drawing.Rectangle b = pick.Bounds;
-                Log("手機 " + (land ? "橫屏" : "直屏") + " → 投屏窗放喺 " + pick.DeviceName + "  " + b.X + "," + b.Y + "  " + b.Width + "x" + b.Height + "（全屏）");
+                Log("手機 " + (land ? "橫屏" : "直屏") + " → 投屏窗放喺 " + pick.DeviceName + "  " + b.X + "," + b.Y + "  " + b.Width + "x" + b.Height + "（無邊框全屏）");
                 return " --window-x=" + b.X + " --window-y=" + b.Y + " --window-width=" + b.Width +
-                       " --window-height=" + b.Height + " --fullscreen";
+                       " --window-height=" + b.Height + " --window-borderless";
             }
             catch (Exception ex) { Log("螢幕偵測失敗：" + ex.Message); return ""; }
         }
@@ -273,8 +333,14 @@ namespace AndroidCast
                 string[] p = sz.Split('x');
                 int pw = int.Parse(p[0]), ph = int.Parse(p[1]);
                 bool landA = IsLandscape();
+                if (landA) { int t0 = pw; pw = ph; ph = t0; }   // 橫屏時實際串流係打橫（wm size 係自然座標）
                 System.Drawing.Rectangle b = PickScreen(landA).Bounds;
                 double A = (double)b.Width / b.Height;
+                if (Math.Abs((double)pw / ph - A) < 0.02)
+                {
+                    Log("比例已經一樣（手機 " + pw + "x" + ph + " vs 螢幕 " + b.Width + "x" + b.Height + "）→ 唔裁切");
+                    return "";
+                }
                 int cw, ch, cx, cy;
                 if ((double)pw / ph > A) { ch = ph; cw = (int)Math.Round(ph * A); cx = (pw - cw) / 2; cy = 0; }
                 else { cw = pw; ch = (int)Math.Round(pw / A); cx = 0; cy = (ph - ch) / 2; }
@@ -387,11 +453,12 @@ namespace AndroidCast
                 Scr = new Process();
                 Scr.StartInfo = psi;
                 Scr.EnableRaisingEvents = true;
-                Scr.OutputDataReceived += delegate(object s, DataReceivedEventArgs e) { if (e.Data != null) Log("scrcpy: " + e.Data); };
+                Scr.OutputDataReceived += delegate(object s, DataReceivedEventArgs e) { if (e.Data != null) { Log("scrcpy: " + e.Data); OnTextureLine(e.Data); } };
                 Scr.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e)
                 {
                     if (e.Data == null) return;
                     Log("scrcpy: " + e.Data);
+                    OnTextureLine(e.Data);
                     if (e.Data.IndexOf("INJECT_EVENTS") >= 0)
                         Log(">>> 手機未開「開發者選項 → USB 偵錯（安全設定）」：而家只可以睇，未可以用電腦鼠標／鍵盤控制。開咗再重啟手機即可以控制。");
                 };
@@ -402,7 +469,14 @@ namespace AndroidCast
                 Log("投屏啟動 " + target + "  " + args);
                 SaveKnown(target);
                 LastTarget = target;
+                LastWindowTitle = "無線投屏 " + target;
                 StartOrientationWatch();
+                // 開場 1.5 秒後再對一次位（避免 scrcpy 開窗時短暫用影片原始比例）
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    try { Thread.Sleep(1500); if (Scr != null && !Scr.HasExited) MoveToScreen(LastPlacementLandscape); }
+                    catch { }
+                });
                 return true;
             }
             catch (Exception ex)
@@ -463,9 +537,27 @@ namespace AndroidCast
             int q = p.IndexOf('?');
             if (q >= 0) p = p.Substring(0, q);
             p = p.TrimStart('/').ToLower();
-            if (p == "ping") return "ok androidcast " + Agent.Version + " bg scrcpy=" + (Adb.ScrcpyDir != null ? "ready" : "no") + " shutdown=" + (AllowShutdown ? "on" : "off");
+            if (p == "ping") return "ok androidcast " + Agent.Version + " bg scrcpy=" + (Adb.ScrcpyDir != null ? "ready" : "no") + " shutdown=" + (AllowShutdown ? "on" : "off") + " move=" + (AutoMove ? "on" : "off") + " size=" + (FitPhoneResolution ? "fit" : "raw");
             if (p == "status") return Status();
-            if (p == "cast") return Cast();
+            if (p == "cast")
+            {
+                if (path != null)
+                {
+                    bool chg = false;
+                    if (path.IndexOf("move=0") >= 0 && AutoMove) { AutoMove = false; chg = true; }
+                    else if (path.IndexOf("move=1") >= 0 && !AutoMove) { AutoMove = true; chg = true; }
+                    if (chg) { SaveSettings(); Log("手機設定：橫屏自動搬螢幕 = " + (AutoMove ? "開" : "關")); }
+                }
+                return Cast();
+            }
+            if (p == "setmove")
+            {
+                if (path != null && path.IndexOf("on=0") >= 0) AutoMove = false;
+                else if (path != null && path.IndexOf("on=1") >= 0) AutoMove = true;
+                SaveSettings();
+                Log("橫屏自動搬螢幕：" + (AutoMove ? "開" : "關"));
+                return "move=" + (AutoMove ? "on" : "off");
+            }
             if (p == "stop") { StopCast(); return "stopped"; }
             if (p == "shutdown")
             {
