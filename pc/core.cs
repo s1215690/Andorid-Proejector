@@ -17,6 +17,8 @@ namespace AndroidCast
         public static bool FullscreenPortrait = true;   // 開喺豎屏副螢幕 + 全屏
         public static bool MouseUhid = false;           // true = 鼠標鎖定模式（UHID）
         public static bool FillScreen = true;           // 裁切到同螢幕同比例，填滿冇黑邊
+        public static bool FitPhoneResolution = true;   // 叫手機用螢幕嘅比例排版（填滿＋完整）
+        private static bool phoneResized = false;
         public static volatile bool QuitRequested = false;
         public static Process Scr;
         public static string KnownFile = null;
@@ -164,6 +166,63 @@ namespace AndroidCast
             catch (Exception ex) { Log("算裁切失敗：" + ex.Message); return ""; }
         }
 
+        public static string PhysicalScreenSize()
+        {
+            string dev = DeviceInfo();
+            if (dev == "offline") return null;
+            string o = Adb.A("-s " + dev + " shell wm size", 8000);
+            foreach (string line in o.Split(new char[] { (char)13, (char)10 }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (line.IndexOf("Physical", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                Match m = Regex.Match(line, @"(\d+)x(\d+)");
+                if (m.Success) return m.Value;
+            }
+            return null;
+        }
+
+        // 叫手機用「同螢幕一樣嘅比例」去排版：填滿螢幕之餘仲睇得齊（唔會切頭切尾）
+        public static void ResizePhoneForScreen(string target)
+        {
+            try
+            {
+                string phys = PhysicalScreenSize();
+                string cur = DeviceScreenSize();
+                if (phys == null || cur == null) return;
+                if (cur != phys) phoneResized = true;      // 之前留低嘅 override，收工時要還原
+                if (!FitPhoneResolution) return;
+                string[] p = phys.Split('x');
+                int pw = int.Parse(p[0]), ph = int.Parse(p[1]);
+                System.Drawing.Rectangle b = PickScreen().Bounds;
+                double A = (double)b.Width / b.Height;
+                int nw = pw, nh = (int)Math.Round(pw / A);
+                nh -= nh % 2;
+                if (nw == pw && nh == ph) return;
+                string want = nw + "x" + nh;
+                if (cur == want) { phoneResized = true; return; }
+                string o = Adb.A("-s " + target + " shell wm size " + want, 10000);
+                Log("夾手機解析度 " + phys + " → " + want + "  " + o.Trim());
+                phoneResized = true;
+                Thread.Sleep(1800);
+            }
+            catch (Exception ex) { Log("夾解析度失敗：" + ex.Message); }
+        }
+
+        public static void ResetPhoneSize()
+        {
+            if (!phoneResized) return;
+            phoneResized = false;
+            try
+            {
+                string dev = DeviceInfo();
+                if (dev != "offline")
+                {
+                    Adb.A("-s " + dev + " shell wm size reset", 10000);
+                    Log("已還原手機原本解析度（wm size reset）");
+                }
+            }
+            catch { }
+        }
+
         public static string DeviceScreenSize()
         {
             string dev = DeviceInfo();
@@ -184,10 +243,14 @@ namespace AndroidCast
         public static bool StartScrcpy(string target)
         {
             if (Adb.ScrcpyDir == null) return false;
+            // 先叫醒手機（唔係投屏會係黑畫面），再按需要夾解析度
+            try { Adb.A("-s " + target + " shell input keyevent KEYCODE_WAKEUP", 8000); } catch { }
+            if (FitPhoneResolution) ResizePhoneForScreen(target);
             string args = "-s " + target;
             if (!string.IsNullOrEmpty(Bitrate)) args += " --video-bit-rate=" + Bitrate;
             if (!string.IsNullOrEmpty(MaxSize)) args += " --max-size=" + MaxSize;
             if (StayAwake) args += " --stay-awake";
+            args += " --keep-active";
             if (FullscreenPortrait) args += PlacementArgs();
             if (FillScreen && FullscreenPortrait) args += CropArgs();
             if (MouseUhid) args += " --mouse=uhid --keyboard=uhid";
@@ -211,7 +274,7 @@ namespace AndroidCast
                     if (e.Data.IndexOf("INJECT_EVENTS") >= 0)
                         Log(">>> 手機未開「開發者選項 → USB 偵錯（安全設定）」：而家只可以睇，未可以用電腦鼠標／鍵盤控制。開咗再重啟手機即可以控制。");
                 };
-                Scr.Exited += delegate { Log("scrcpy 已結束"); };
+                Scr.Exited += delegate { Log("scrcpy 已結束"); ResetPhoneSize(); };
                 Scr.Start();
                 Scr.BeginOutputReadLine();
                 Scr.BeginErrorReadLine();
@@ -237,6 +300,7 @@ namespace AndroidCast
                 }
             }
             catch { }
+            ResetPhoneSize();   // 收工還原手機原本 9:20
         }
 
         public static string DeviceInfo()

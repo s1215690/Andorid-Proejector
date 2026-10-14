@@ -149,7 +149,7 @@ namespace AndroidCast
     {
         private ListView lv;
         private Button btnScan, btnUsb, btnCast, btnStop, btnQr, btnFindPair, btnPairCode;
-        private CheckBox chkAutoScan, chkStay, chkAutoConn, chkFs, chkUhid, chkFill;
+        private CheckBox chkAutoScan, chkStay, chkAutoConn, chkFs, chkUhid, chkFill, chkFit;
         private ComboBox cmbBitrate, cmbMax;
         private PictureBox pbQr;
         private Label lblQrHint, lblQrState, lblPairSvc, lblStatus, lblPaths, lblCodeLabel;
@@ -345,8 +345,8 @@ namespace AndroidCast
             gbOpt.Controls.Add(chkUhid);
 
             lblPaths = new Label();
-            lblPaths.Location = new Point(132, 52);
-            lblPaths.Size = new Size(596, 20);
+            lblPaths.Location = new Point(268, 52);
+            lblPaths.Size = new Size(460, 20);
             lblPaths.ForeColor = Color.DimGray;
 
             chkFill = new CheckBox();
@@ -355,6 +355,13 @@ namespace AndroidCast
             chkFill.Location = new Point(14, 50);
             chkFill.Size = new Size(112, 24);
             gbOpt.Controls.Add(chkFill);
+
+            chkFit = new CheckBox();
+            chkFit.Text = "夾手機解析度";
+            chkFit.Checked = true;
+            chkFit.Location = new Point(132, 50);
+            chkFit.Size = new Size(126, 24);
+            gbOpt.Controls.Add(chkFit);
             lblPaths.Text = "adb: " + Path.GetFileName(Path.GetDirectoryName(Adb.AdbPath)) + "\\adb.exe     scrcpy: " + Path.GetFileName(Adb.ScrcpyDir == null ? "?" : Adb.ScrcpyDir) + (Adb.ScrcpyDir == null ? "（未安裝）" : "（已就緒）");
             gbOpt.Controls.Add(lblPaths);
 
@@ -839,6 +846,9 @@ namespace AndroidCast
             if (cmbBitrate.SelectedIndex > 0) args += " --video-bit-rate=" + cmbBitrate.SelectedItem.ToString();
             if (cmbMax.SelectedIndex > 0) args += " --max-size=" + cmbMax.SelectedItem.ToString();
             if (chkStay.Checked) args += " --stay-awake";
+            args += " --keep-active";
+            try { Adb.A("-s " + target + " shell input keyevent KEYCODE_WAKEUP", 8000); } catch { }
+            if (chkFit.Checked) Core.ResizePhoneForScreen(target);
             if (chkFs.Checked) args += Core.PlacementArgs();
             if (chkFill.Checked) args += Core.CropArgs();
             if (chkUhid.Checked) args += " --mouse=uhid --keyboard=uhid";
@@ -1018,6 +1028,7 @@ namespace AndroidCast
                     Log("已停止投屏");
                     SetStatus("已停止投屏");
                 }
+                Core.ResetPhoneSize();   // 還原手機原本 9:20
             }
             catch { }
         }
