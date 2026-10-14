@@ -1,0 +1,11 @@
+# 建置產物 / 本機設定
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+
+# 記錄 / 暫存
+*.log
+__pycache__/
+known.txt
