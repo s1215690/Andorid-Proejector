@@ -69,6 +69,8 @@ namespace AndroidCast
             string dir = Application.StartupPath;
             Core.SetLogFile(System.IO.Path.Combine(dir, "bg.log"));
             Core.InitKnown(System.IO.Path.Combine(dir, "known.txt"));
+            Core.SettingsFile = System.IO.Path.Combine(dir, "settings.txt");
+            Core.LoadSettings();
             Adb.Log.OnLine += delegate(string s) { Core.Log(s); };
             Core.Log("=== 後台啟動（無介面）adb=" + Adb.AdbPath + "  scrcpy=" + (Adb.ScrcpyDir == null ? "?" : Adb.ScrcpyDir));
             try { Adb.A("start-server", 15000); } catch { }
@@ -149,7 +151,7 @@ namespace AndroidCast
     {
         private ListView lv;
         private Button btnScan, btnUsb, btnCast, btnStop, btnQr, btnFindPair, btnPairCode;
-        private CheckBox chkAutoScan, chkStay, chkAutoConn, chkFs, chkUhid, chkFill, chkFit;
+        private CheckBox chkAutoScan, chkStay, chkAutoConn, chkFs, chkUhid, chkFill, chkFit, chkShutdown;
         private ComboBox cmbBitrate, cmbMax;
         private PictureBox pbQr;
         private Label lblQrHint, lblQrState, lblPairSvc, lblStatus, lblPaths, lblCodeLabel;
@@ -301,7 +303,7 @@ namespace AndroidCast
             GroupBox gbOpt = new GroupBox();
             gbOpt.Text = "投屏選項";
             gbOpt.Location = new Point(10, 534);
-            gbOpt.Size = new Size(744, 80);
+            gbOpt.Size = new Size(744, 104);
             gbOpt.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(gbOpt);
 
@@ -345,8 +347,8 @@ namespace AndroidCast
             gbOpt.Controls.Add(chkUhid);
 
             lblPaths = new Label();
-            lblPaths.Location = new Point(268, 52);
-            lblPaths.Size = new Size(460, 20);
+            lblPaths.Location = new Point(14, 76);
+            lblPaths.Size = new Size(714, 20);
             lblPaths.ForeColor = Color.DimGray;
 
             chkFill = new CheckBox();
@@ -362,13 +364,26 @@ namespace AndroidCast
             chkFit.Location = new Point(132, 50);
             chkFit.Size = new Size(126, 24);
             gbOpt.Controls.Add(chkFit);
+
+            chkShutdown = new CheckBox();
+            chkShutdown.Text = "允許手機關機";
+            chkShutdown.Checked = true;
+            chkShutdown.Location = new Point(268, 50);
+            chkShutdown.Size = new Size(130, 24);
+            chkShutdown.CheckedChanged += delegate
+            {
+                Core.AllowShutdown = chkShutdown.Checked;
+                Core.SaveSettings();
+                Log("手機關機權限：" + (Core.AllowShutdown ? "允許" : "禁止"));
+            };
+            gbOpt.Controls.Add(chkShutdown);
             lblPaths.Text = "adb: " + Path.GetFileName(Path.GetDirectoryName(Adb.AdbPath)) + "\\adb.exe     scrcpy: " + Path.GetFileName(Adb.ScrcpyDir == null ? "?" : Adb.ScrcpyDir) + (Adb.ScrcpyDir == null ? "（未安裝）" : "（已就緒）");
             gbOpt.Controls.Add(lblPaths);
 
             // ---------- 狀態 / 記錄 ----------
             lblStatus = new Label();
             lblStatus.Text = "準備中…";
-            lblStatus.Location = new Point(12, 622);
+            lblStatus.Location = new Point(12, 646);
             lblStatus.Size = new Size(740, 22);
             lblStatus.Font = new Font(Font, FontStyle.Bold);
             lblStatus.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
@@ -381,8 +396,8 @@ namespace AndroidCast
             txtLog.WordWrap = true;
             txtLog.Font = new Font("Consolas", 8.5F);
             txtLog.BackColor = Color.White;
-            txtLog.Location = new Point(12, 646);
-            txtLog.Size = new Size(740, 106);
+            txtLog.Location = new Point(12, 670);
+            txtLog.Size = new Size(740, 82);
             txtLog.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(txtLog);
 
@@ -425,6 +440,10 @@ namespace AndroidCast
         {
             Log("adb = " + Adb.AdbPath);
             Log("scrcpy = " + (Adb.ScrcpyPath ?? "?") + (Adb.ScrcpyDir != null ? ("  (" + Adb.ScrcpyDir + ")") : ""));
+            Core.SettingsFile = Path.Combine(Application.StartupPath, "settings.txt");
+            Core.LoadSettings();
+            chkShutdown.Checked = Core.AllowShutdown;
+            Log("手機關機權限：" + (Core.AllowShutdown ? "允許" : "禁止"));
             LoadKnown();
             Task.Factory.StartNew(delegate
             {
