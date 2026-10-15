@@ -37,6 +37,7 @@ namespace AndroidCast
                     string t = l.Trim();
                     if (t.StartsWith("allow_shutdown=")) AllowShutdown = t.EndsWith("1");
                     if (t.StartsWith("auto_move=")) AutoMove = t.EndsWith("1");
+                    if (t.StartsWith("fit_916=")) FitPhoneResolution = t.EndsWith("1");
                 }
             }
             catch { }
@@ -48,7 +49,8 @@ namespace AndroidCast
             {
                 if (SettingsFile == null) return;
                 File.WriteAllText(SettingsFile, "allow_shutdown=" + (AllowShutdown ? "1" : "0") + (char)13 + (char)10 +
-                                                "auto_move=" + (AutoMove ? "1" : "0") + (char)13 + (char)10);
+                                                "auto_move=" + (AutoMove ? "1" : "0") + (char)13 + (char)10 +
+                                                "fit_916=" + (FitPhoneResolution ? "1" : "0") + (char)13 + (char)10);
             }
             catch { }
         }
@@ -546,9 +548,23 @@ namespace AndroidCast
                     bool chg = false;
                     if (path.IndexOf("move=0") >= 0 && AutoMove) { AutoMove = false; chg = true; }
                     else if (path.IndexOf("move=1") >= 0 && !AutoMove) { AutoMove = true; chg = true; }
-                    if (chg) { SaveSettings(); Log("手機設定：橫屏自動搬螢幕 = " + (AutoMove ? "開" : "關")); }
+                    if (path.IndexOf("fit=0") >= 0 && FitPhoneResolution) { FitPhoneResolution = false; FillScreen = false; chg = true; }
+                    else if (path.IndexOf("fit=1") >= 0 && !FitPhoneResolution) { FitPhoneResolution = true; chg = true; }
+                    if (chg)
+                    {
+                        SaveSettings();
+                        Log("手機設定：橫屏自動搬螢幕 = " + (AutoMove ? "開" : "關") + "、排版 = " + (FitPhoneResolution ? "9:16 填滿" : "9:20 原裝"));
+                    }
                 }
                 return Cast();
+            }
+            if (p == "setfit")
+            {
+                if (path != null && path.IndexOf("on=0") >= 0) { FitPhoneResolution = false; FillScreen = false; }
+                else if (path != null && path.IndexOf("on=1") >= 0) FitPhoneResolution = true;
+                SaveSettings();
+                Log("手機排版設定：" + (FitPhoneResolution ? "9:16 填滿（改手機解像度）" : "9:20 原裝（唔改手機，完整睇到）"));
+                return "size=" + (FitPhoneResolution ? "fit" : "raw");
             }
             if (p == "setmove")
             {
