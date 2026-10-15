@@ -26,6 +26,7 @@ namespace AndroidCast
         public static bool LastPlacementLandscape = false;
         private static Thread watchThread = null;
         private static bool phoneResized = false;
+        private static bool densityResized = false;
 
         public static void LoadSettings()
         {
@@ -75,10 +76,8 @@ namespace AndroidCast
                 IntPtr h = LastWindowTitle == null ? IntPtr.Zero : FindWindowW(null, LastWindowTitle);
                 if (h == IntPtr.Zero)
                 {
-                    Log("搵唔到投屏窗（" + LastWindowTitle + "）→ 改用重開 scrcpy");
-                    KillScrcpyOnly();
-                    Thread.Sleep(600);
-                    if (LastTarget != null) StartScrcpy(LastTarget);
+                    // scrcpy 開窗要幾秒；搵唔到就靜靜等下一個檢查，唔可以重開（會變無限重啟）
+                    Log("投屏窗仲未出現，等下一次檢查");
                     return;
                 }
                 SetWindowPos(h, IntPtr.Zero, b.X, b.Y, b.Width, b.Height, 0x0040 | 0x0010);
@@ -383,7 +382,23 @@ namespace AndroidCast
             return null;
         }
 
+        public static string PhysicalDensity()
+        {
+            string dev = DeviceInfo();
+            if (dev == "offline") return null;
+            string o = Adb.A("-s " + dev + " shell wm density", 8000);
+            foreach (string line in o.Split(new char[] { (char)13, (char)10 }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (line.IndexOf("Physical", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                Match m = Regex.Match(line, @"(\d+)");
+                if (m.Success) return m.Value;
+            }
+            return null;
+        }
+
         // 叫手機用「同螢幕一樣嘅比例」去排版：填滿螢幕之餘仲睇得齊（唔會切頭切尾）
+        // ⚠ 只改 size 會令「每 dp 高度」縮短 → MIUI launcher 會重新排版（icon 亂、上下留白）
+        //   所以要同時按同一比例下調 density → dp 高度不變 → 排版同原本一模一樣
         public static void ResizePhoneForScreen(string target)
         {
             try
@@ -401,12 +416,23 @@ namespace AndroidCast
                 int nw = Math.Min(pw, ph);
                 int nh = (int)Math.Round(nw * (longS / shortS));
                 nh -= nh % 2;
-                if (nw == pw && nh == ph) return;
+                int pd = 0;
+                try { pd = int.Parse(PhysicalDensity()); }
+                catch { }
+                int nd = pd > 0 ? (int)Math.Round(pd * (double)nh / Math.Max(pw, ph)) : 0;
                 string want = nw + "x" + nh;
-                if (cur == want) { phoneResized = true; return; }
-                string o = Adb.A("-s " + target + " shell wm size " + want, 10000);
-                Log("夾手機解析度 " + phys + " → " + want + "  " + o.Trim());
+                if (cur != want)
+                {
+                    string o = Adb.A("-s " + target + " shell wm size " + want, 10000);
+                    Log("夾手機解析度 " + phys + " → " + want + "  " + o.Trim());
+                }
                 phoneResized = true;
+                if (nd > 0)
+                {
+                    Adb.A("-s " + target + " shell wm density " + nd, 10000);
+                    Log("配合改密度 " + pd + " → " + nd + "（dp 高度保持 " + (ph * 160 / pd) + "dp，launcher 唔會重排）");
+                    densityResized = true;
+                }
                 Thread.Sleep(1800);
             }
             catch (Exception ex) { Log("夾解析度失敗：" + ex.Message); }
@@ -414,15 +440,19 @@ namespace AndroidCast
 
         public static void ResetPhoneSize()
         {
-            if (!phoneResized) return;
+            if (!phoneResized && !densityResized) return;
+            bool didD = densityResized;
+            bool did = phoneResized;
             phoneResized = false;
+            densityResized = false;
             try
             {
                 string dev = DeviceInfo();
                 if (dev != "offline")
                 {
-                    Adb.A("-s " + dev + " shell wm size reset", 10000);
-                    Log("已還原手機原本解析度（wm size reset）");
+                    if (did) Adb.A("-s " + dev + " shell wm size reset", 10000);
+                    if (didD) Adb.A("-s " + dev + " shell wm density reset", 10000);
+                    Log("已還原手機原本解析度／密度（wm size reset" + (didD ? " + wm density reset" : "") + "）");
                 }
             }
             catch { }
@@ -492,7 +522,7 @@ namespace AndroidCast
                 // 開場 1.5 秒後再對一次位（避免 scrcpy 開窗時短暫用影片原始比例）
                 ThreadPool.QueueUserWorkItem(delegate
                 {
-                    try { Thread.Sleep(1500); if (Scr != null && !Scr.HasExited) MoveToScreen(LastPlacementLandscape); }
+                    try { Thread.Sleep(4500); if (Scr != null && !Scr.HasExited) MoveToScreen(LastPlacementLandscape); }
                     catch { }
                 });
                 return true;
