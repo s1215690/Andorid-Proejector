@@ -144,6 +144,22 @@ namespace AndroidCast
             catch { }
         }
 
+        // 由 query string 取整數，例如 set=45
+        private static int QInt(string q, string key, int def)
+        {
+            try
+            {
+                int i = q.IndexOf(key);
+                if (i < 0) return def;
+                i += key.Length;
+                int j = i;
+                while (j < q.Length && (char.IsDigit(q[j]) || q[j] == '-')) j++;
+                if (j == i) return def;
+                return int.Parse(q.Substring(i, j - i));
+            }
+            catch { return def; }
+        }
+
         public static string RunCmd(string exe, string args)
         {
             try
@@ -587,6 +603,42 @@ namespace AndroidCast
                 string o = RunCmd("shutdown", "/a");
                 Log("已取消關機：" + o.Trim());
                 return "cancelled";
+            }
+            if (p == "volume" || p == "vol")
+            {
+                if (path != null && path.IndexOf("set=") >= 0)
+                {
+                    int v = QInt(path, "set=", -1);
+                    bool ok = Vol.Set(v);
+                    Log("手機調電腦音量 → " + v + "% " + (ok ? "✓" : "（核心 API 失敗）"));
+                    return ok ? ("ok vol=" + v) : "error 設定唔到";
+                }
+                if (path != null && path.IndexOf("up=") >= 0)
+                {
+                    int d = QInt(path, "up=", 5);
+                    int nv = Vol.Step(d);
+                    Log("手機調電腦音量 ↑ " + d + " → " + (nv >= 0 ? nv + "%" : "（用音量鍵）"));
+                    return "ok vol=" + nv;
+                }
+                if (path != null && path.IndexOf("down=") >= 0)
+                {
+                    int d = QInt(path, "down=", 5);
+                    int nv = Vol.Step(-d);
+                    Log("手機調電腦音量 ↓ " + d + " → " + (nv >= 0 ? nv + "%" : "（用音量鍵）"));
+                    return "ok vol=" + nv;
+                }
+                if (path != null && path.IndexOf("mute=") >= 0)
+                {
+                    bool want;
+                    if (path.IndexOf("mute=toggle") >= 0) { bool cm; Vol.Get(out cm); want = !cm; }
+                    else want = path.IndexOf("mute=1") >= 0;
+                    Vol.Mute(want);
+                    Log("手機叫電腦" + (want ? "靜音" : "開返聲"));
+                    return "ok mute=" + (want ? "1" : "0");
+                }
+                bool mm;
+                int cur = Vol.Get(out mm);
+                return "vol=" + cur + " mute=" + (mm ? "1" : "0");
             }
             if (p == "quit") { QuitRequested = true; Log("收到 quit 指令，準備收工"); return "bye"; }
             return "unknown_command";
